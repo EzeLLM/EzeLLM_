@@ -82,24 +82,6 @@ Once the script is running, you can input text and the model will generate a con
 
 **Note**: The model is trained on a 100 billion token dataset focused on English educational content. It is most appropriate to use the model with this in mind, as it performs optimally on educational or informational text inputs.
 
-### Running the Demo
-
-To see EzeLLM in action, run the pipeline script and provide text to complete as described above. This script uses the pipeline to generate text based on the provided input, showcasing the model's capabilities.
-
-### Using the Library
-
-EzeLLM can be used in your own Python scripts by importing the pipeline and utilizing the `generate` method for text generation.
-
-```python
-from dev.pipeline import pipeline
-
-# Initialize the pipeline
-p = pipeline()
-
-# Generate text
-output = p.generate(input_="Your input text here!")
-print(output)
-```
 
 ## File Structure
 
@@ -111,7 +93,4 @@ print(output)
 ## Contributing
 
 Contributions are welcome! Feel free to open issues or submit pull requests for new features, bug fixes, or improvements.
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+Please report bugs and problems.

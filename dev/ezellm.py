@@ -6,10 +6,8 @@ import torch.nn as nn
 from torch.nn import functional as F
 import tiktoken
 import numpy as np
-import math
 import time
 from rotary_embedding_torch import RotaryEmbedding
-import tqdm
 from torch.utils.checkpoint import checkpoint
 from typing import List
 import random
@@ -229,7 +227,7 @@ class EzeLLM(nn.Module):
     
 
 if __name__ == '__main__':
-    path_to_pt = '/Users/ezelbayraktar/Documents/dev/tosafe/critical/model.pt'
+    path_to_pt = 'critical/model.pt'
     model = EzeLLM.from_pretrained(dict_path=path_to_pt)
     print(model.generate())
 

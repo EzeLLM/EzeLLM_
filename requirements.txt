@@ -1,0 +1,7 @@
+numpy==2.1.2
+Requests==2.32.3
+rotary_embedding_torch==0.8.4
+tiktoken==0.8.0
+toml==0.10.2
+torch==2.4.1
+tqdm==4.66.5

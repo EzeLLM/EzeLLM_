@@ -11,7 +11,7 @@ from rotary_embedding_torch import RotaryEmbedding
 from torch.utils.checkpoint import checkpoint
 from typing import List
 import random
-
+from torch import quantization
 @dataclass
 class EzeLLMConfig:
     block_size: int = 2048 # max sequence length
@@ -119,18 +119,14 @@ class Block(nn.Module):
         return x
 
 class EzeLLM(nn.Module):
-    def __init__(self,config):
+    def __init__(self,config,device):
         super().__init__()
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        if self.device == 'cuda':
-            torch.set_float32_matmul_precision('high')
-        else:
-            torch.set_float32_matmul_precision('medium')
+        self.device = device
+
 
         self.config = config
         self.transformer = nn.ModuleDict(dict(
             wte = nn.Embedding(config.vocab_size,config.embed_size),
-            #wpe = nn.Embedding(config.block_size,config.embed_size),
             hiddens = nn.ModuleList([Block(config) for _ in range(config.hidden_count)]),
             ln_f = nn.RMSNorm(config.embed_size),
         ))
@@ -148,6 +144,7 @@ class EzeLLM(nn.Module):
         torch.manual_seed(964)
         self.tokenizer = tiktoken.get_encoding('gpt2')
         self.eot_id = self.tokenizer._special_tokens['<|endoftext|>']
+        self.to(self.device)
     def _init_weights(self,module):
         if isinstance(module,nn.Linear):
             std = 0.02
@@ -177,18 +174,29 @@ class EzeLLM(nn.Module):
     def generate(
             self,
             input_: str= "I'm a",
-            tempreature: int = 0.7,
-            tempreature_interval:int = 0.1,
-            topk: int = 50,
+            tempreature: int = 1,
+            tempreature_interval:int = 0.0,
+            topk: int = 100,
             topp: float = 0.9,
-            max_l: int = 200,
+            max_l: int = 2048,
             num_return_seq: int = 1
-
+    #TODO implement topp
     ) -> List:
-        num_return_seq = 1
-        max_l = 200
+        print(
+    f"""
+Parameters:
+    Input text: {input_}
+    Temperature: {tempreature}
+    Temperature interval: {tempreature_interval}
+    Top-k: {topk}
+    Top-p: {topp}
+    Maximum length: {max_l}
+    Number of return sequences: {num_return_seq}
+    """
+)
+
         tokens = self.tokenizer.encode(input_)
-        tokens = torch.tensor(tokens,dtype=torch.long)
+        tokens = torch.tensor(tokens,dtype=torch.long,device=self.device)
         tokens = tokens.unsqueeze(0).repeat(num_return_seq,1) 
         x = tokens.to(self.device)
         gen_start = time.time()
@@ -219,17 +227,26 @@ class EzeLLM(nn.Module):
         return decoded
     
     @staticmethod
-    def from_pretrained(dict_path:str):
-        checkpoint = torch.load(dict_path,map_location=torch.device('cpu'))
-        model = EzeLLM(checkpoint['config'])
+    def from_pretrained(dict_path:str,matrix_percesion:str=None):
+        checkpoint = torch.load(dict_path)
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        model = EzeLLM(checkpoint['config'],device='cuda')
         model.load_state_dict(checkpoint['model'])
+        if matrix_percesion=='raw':
+            torch.set_float32_matmul_precision('highest')
+        elif matrix_percesion=='high':
+            torch.set_float32_matmul_precision('high')
+        elif matrix_percesion=='mid':
+            torch.set_float32_matmul_precision('high')
+        else:
+            print('Matrix percesion is passed as None, you may consider "mid" for better performance.')
+
         return model
     
-
 if __name__ == '__main__':
-    path_to_pt = 'critical/model.pt'
-    model = EzeLLM.from_pretrained(dict_path=path_to_pt)
-    print(model.generate())
+    path_to_pt = 'model.pt'
+    model = EzeLLM.from_pretrained(dict_path=path_to_pt,matrix_percesion='raw')
+    print(model.generate(input_="""Science Fair Project Encyclopedia The chloride ion is formed when the element chlorine picks up one electron to form"""))
 
 
 

@@ -48,4 +48,4 @@ class pipeline():
 if __name__ == '__main__':
     p=pipeline()
     while True:
-        print(p.generate(input_=input("Enter the input text: "),tempreature=0.9,tempreature_interval=0.1,topk=50,topp=0.9,max_l=200,num_return_seq=1))
+        print(p.generate(input_=input("Enter the input text: "),tempreature=1.0,tempreature_interval=0.1,topk=50,topp=0.9,max_l=2048,num_return_seq=1))

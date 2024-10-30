@@ -11,7 +11,7 @@ from rotary_embedding_torch import RotaryEmbedding
 from torch.utils.checkpoint import checkpoint
 from typing import List
 import random
-from torch import quantization
+import sys
 @dataclass
 class EzeLLMConfig:
     block_size: int = 2048 # max sequence length
@@ -183,7 +183,7 @@ class EzeLLM(nn.Module):
     #TODO implement topp
     ) -> List:
         print(
-    f"""
+    f"""\n
 Parameters:
     Input text: {input_}
     Temperature: {tempreature}
@@ -191,7 +191,7 @@ Parameters:
     Top-k: {topk}
     Top-p: {topp}
     Maximum length: {max_l}
-    Number of return sequences: {num_return_seq}
+    Number of return sequences: {num_return_seq}\n\n
     """
 )
 
@@ -206,13 +206,16 @@ Parameters:
         while x.size(1) < max_l:
             with torch.no_grad():
                 logits = self(x)[0]
-
+                
                 logits = logits[:,-1,:]
-
                 logits = logits / tempreature
 
                 probs = F.softmax(logits,dim=-1)
                 topk_probs, topk_indices = torch.topk(probs,topk,dim=-1)
+                # print(topk_probs)
+                # print(topk_indices)
+                # print(self.tokenizer.decode(topk_indices[0].tolist()))
+                # sys.exit()
 
                 ix = torch.multinomial(topk_probs,1)
                 xcol = torch.gather(topk_indices,-1,ix)
@@ -230,8 +233,9 @@ Parameters:
     def from_pretrained(dict_path:str,matrix_percesion:str=None):
         checkpoint = torch.load(dict_path)
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        model = EzeLLM(checkpoint['config'],device='cuda')
+        model = EzeLLM(checkpoint['config'],device=device)
         model.load_state_dict(checkpoint['model'])
+        
         if matrix_percesion=='raw':
             torch.set_float32_matmul_precision('highest')
         elif matrix_percesion=='high':
@@ -246,7 +250,7 @@ Parameters:
 if __name__ == '__main__':
     path_to_pt = 'model.pt'
     model = EzeLLM.from_pretrained(dict_path=path_to_pt,matrix_percesion='raw')
-    print(model.generate(input_="""Science Fair Project Encyclopedia The chloride ion is formed when the element chlorine picks up one electron to form"""))
+    print(model.generate(input_="""A guy"""))
 
 
 

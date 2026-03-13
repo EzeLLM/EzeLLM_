@@ -9,8 +9,12 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'dev'))
 
 import torch
-from ezellm import EzeLLM
+import __main__
+from ezellm import EzeLLM, EzeLLMConfig
 from kv_cache import generate_deterministic
+
+# Checkpoint pickles config as __main__.EzeLLMConfig — make it findable
+__main__.EzeLLMConfig = EzeLLMConfig
 
 
 def verify_kv_cache(model_path: str, num_tokens: int = 50):

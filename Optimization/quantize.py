@@ -13,11 +13,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'dev'))
 
 import torch
 import torch.nn as nn
+import __main__
 import tiktoken
 import numpy as np
 from tqdm import tqdm
 
 from ezellm import EzeLLM, EzeLLMConfig, SwiGLU
+
+# Checkpoint pickles config as __main__.EzeLLMConfig — make it findable
+__main__.EzeLLMConfig = EzeLLMConfig
 
 
 # ===========================================================================

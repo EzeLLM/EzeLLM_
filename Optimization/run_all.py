@@ -18,8 +18,14 @@ import subprocess
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'dev'))
 
+import torch
+import __main__
 import requests
 from tqdm import tqdm
+from ezellm import EzeLLMConfig
+
+# Checkpoint pickles config as __main__.EzeLLMConfig — make it findable
+__main__.EzeLLMConfig = EzeLLMConfig
 
 MODEL_URL = "https://huggingface.co/TerminatorPower/EzeLLM-base-text-fp32/resolve/main/model.pt"
 MODEL_DIR = os.path.dirname(os.path.abspath(__file__))

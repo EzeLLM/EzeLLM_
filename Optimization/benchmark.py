@@ -14,10 +14,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'dev'))
 
 import torch
 import torch.nn as nn
+import __main__
 from torch.nn import functional as F
 import tiktoken
 
-from ezellm import EzeLLM
+from ezellm import EzeLLM, EzeLLMConfig
+
+# Checkpoint pickles config as __main__.EzeLLMConfig — make it findable
+__main__.EzeLLMConfig = EzeLLMConfig
 from kv_cache import (
     forward_cached, generate_cached, generate_no_cache, KVCache
 )

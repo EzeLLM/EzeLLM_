@@ -20,7 +20,12 @@ import re
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'dev'))
 
 import torch
+import __main__
 from safetensors.torch import save_file
+from ezellm import EzeLLMConfig
+
+# Checkpoint pickles config as __main__.EzeLLMConfig — make it findable
+__main__.EzeLLMConfig = EzeLLMConfig
 
 
 # Key renaming map: PyTorch name prefix → safetensors name prefix

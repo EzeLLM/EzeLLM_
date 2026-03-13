@@ -27,7 +27,7 @@ class KVCache:
 
     def __init__(self, num_layers: int, max_seq_len: int, n_kv_heads: int,
                  head_dim: int, batch_size: int, device: torch.device,
-                 dtype: torch.float32):
+                 dtype: torch.dtype):
         self.num_layers = num_layers
         self.max_seq_len = max_seq_len
         self.n_kv_heads = n_kv_heads

@@ -13,12 +13,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'dev'))
 
 import torch
 import torch.nn as nn
+from torch.nn import functional as F
 import __main__
 import tiktoken
 import numpy as np
 from tqdm import tqdm
 
 from ezellm import EzeLLM, EzeLLMConfig, SwiGLU
+
+# Checkpoint pickles config as __main__.EzeLLMConfig — make it findable
+__main__.EzeLLMConfig = EzeLLMConfig
 
 # Checkpoint pickles config as __main__.EzeLLMConfig — make it findable
 __main__.EzeLLMConfig = EzeLLMConfig
@@ -133,15 +137,19 @@ def collect_calibration_data(num_samples: int = 128, max_length: int = 2048):
             break
 
         # Extract text from conversational format
+        # Nemotron SFT: input is a list of message dicts, output is a string
         text = ""
-        if "conversations" in row:
+        if "input" in row and isinstance(row["input"], list):
+            for msg in row["input"]:
+                text += msg.get("content", msg.get("value", "")) + " "
+            if "output" in row and isinstance(row["output"], str):
+                text += row["output"]
+        elif "conversations" in row:
             for msg in row["conversations"]:
                 text += msg.get("value", msg.get("content", "")) + " "
         elif "messages" in row:
             for msg in row["messages"]:
                 text += msg.get("content", "") + " "
-        elif "input" in row and "output" in row:
-            text = row["input"] + " " + row["output"]
         else:
             text = " ".join(str(v) for v in row.values() if isinstance(v, str))
 
@@ -259,20 +267,19 @@ def convert_int8_calibrated(model_path: str, output_path: str,
             weight = module.weight.data.float().cpu()
             bias = module.bias.data.float().cpu() if module.bias is not None else None
 
-            # Use activation norms to weight the scale computation
+            # Use activation norms to compute effective weight ranges
             if name in activation_stats and activation_stats[name]['avg_norms'] is not None:
                 act_norms = activation_stats[name]['avg_norms'].cpu()
-                # Scale weight columns by activation magnitude
-                # This gives more precision to channels with larger activations
-                weighted_w = weight * act_norms.unsqueeze(0)
-                max_abs = weighted_w.abs().max(dim=1).values
-                # But use original weight range for actual quantization
-                orig_max = weight.abs().max(dim=1).values
-                # Blend: use activation-aware scale with fallback to original
-                scale = orig_max / 127.0
+                # Weight columns by activation magnitude to find effective range
+                # Channels with larger activations need more precision
+                effective_w = weight * act_norms.unsqueeze(0)
+                effective_max = effective_w.abs().max(dim=1).values
+                naive_max = weight.abs().max(dim=1).values
+                # Blend: 70% activation-aware, 30% naive for stability
+                blended_max = 0.7 * effective_max + 0.3 * naive_max
+                scale = blended_max / 127.0
             else:
-                max_abs = weight.abs().max(dim=1).values
-                scale = max_abs / 127.0
+                scale = weight.abs().max(dim=1).values / 127.0
 
             scale = scale.clamp(min=1e-8)
             weight_int8 = (weight / scale.unsqueeze(1)).round().clamp(-128, 127).to(torch.int8)
@@ -291,7 +298,7 @@ def convert_int8_calibrated(model_path: str, output_path: str,
         'quantized_layers': quantized_state,
         'non_linear_state': {
             k: v.cpu() for k, v in model.state_dict().items()
-            if not any(k.startswith(n) for n in quantized_state)
+            if not any(k.startswith(n + '.') for n in quantized_state)
         },
     }, output_path)
 

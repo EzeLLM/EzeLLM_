@@ -90,9 +90,9 @@ def measure_generation(model, prompt, max_tokens, use_cache, device,
         torch.cuda.synchronize()
     elapsed = time.perf_counter() - start
 
-    # Count generated tokens (total - prompt)
-    total_tokens = len(tokenizer.encode(text))
-    gen_tokens = total_tokens - prompt_len
+    # Count generated tokens: max_tokens requested is the upper bound
+    # Use re-encoding as best estimate (decode→encode may differ slightly)
+    gen_tokens = max(1, len(tokenizer.encode(text)) - prompt_len)
     tokens_per_sec = gen_tokens / elapsed if elapsed > 0 else 0
 
     # Peak VRAM

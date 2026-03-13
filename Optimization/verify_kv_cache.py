@@ -9,8 +9,11 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'dev'))
 
 import torch
-from ezellm import EzeLLM
+from ezellm import EzeLLM, EzeLLMConfig
 from kv_cache import generate_deterministic
+
+# Allow EzeLLMConfig to be unpickled safely (checkpoint stores it as a dataclass)
+torch.serialization.add_safe_globals([EzeLLMConfig])
 
 
 def verify_kv_cache(model_path: str, num_tokens: int = 50):
@@ -20,7 +23,7 @@ def verify_kv_cache(model_path: str, num_tokens: int = 50):
     """
     print(f"Loading model from {model_path}...")
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+    checkpoint = torch.load(model_path, map_location=device, weights_only=True)
     model = EzeLLM(checkpoint['config'], device=device)
     model.load_state_dict(checkpoint['model'])
     model.eval()

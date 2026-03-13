@@ -21,6 +21,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'dev'))
 
 import torch
 from safetensors.torch import save_file
+from ezellm import EzeLLMConfig
+
+# Allow EzeLLMConfig to be unpickled safely (checkpoint stores it as a dataclass)
+torch.serialization.add_safe_globals([EzeLLMConfig])
 
 
 # Key renaming map: PyTorch name prefix → safetensors name prefix
@@ -89,7 +93,7 @@ def export_model(model_path: str, output_dir: str):
     os.makedirs(output_dir, exist_ok=True)
 
     print(f"Loading checkpoint from {model_path}...")
-    checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
+    checkpoint = torch.load(model_path, map_location='cpu', weights_only=True)
     config = checkpoint['config']
     state_dict = checkpoint['model']
 

@@ -340,6 +340,7 @@ def load_int8_calibrated(model_path: str, device: str = 'cuda'):
 
     model.load_state_dict(current_state, strict=False)
     model.to(device)
+    model.device = device  # Update custom attribute so generation uses correct device
     model.eval()
     return model
 

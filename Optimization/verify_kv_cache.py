@@ -9,14 +9,8 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'dev'))
 
 import torch
-from ezellm import EzeLLM, EzeLLMConfig
+from ezellm import EzeLLM
 from kv_cache import generate_deterministic
-
-# The checkpoint was saved from __main__, so pickle expects __main__.EzeLLMConfig.
-# Make it resolvable by injecting into both __main__ and the safe globals list.
-import __main__
-__main__.EzeLLMConfig = EzeLLMConfig
-torch.serialization.add_safe_globals([EzeLLMConfig])
 
 
 def verify_kv_cache(model_path: str, num_tokens: int = 50):
@@ -26,7 +20,10 @@ def verify_kv_cache(model_path: str, num_tokens: int = 50):
     """
     print(f"Loading model from {model_path}...")
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    checkpoint = torch.load(model_path, map_location=device, weights_only=True)
+    # weights_only=False: checkpoint pickles EzeLLMConfig as __main__.EzeLLMConfig
+    # (saved via `python ezellm.py`). No way to register that with add_safe_globals
+    # from a different module. This is a trusted first-party checkpoint.
+    checkpoint = torch.load(model_path, map_location=device, weights_only=False)
     model = EzeLLM(checkpoint['config'], device=device)
     model.load_state_dict(checkpoint['model'])
     model.eval()

@@ -19,11 +19,6 @@ from tqdm import tqdm
 
 from ezellm import EzeLLM, EzeLLMConfig, SwiGLU
 
-# The checkpoint was saved from __main__, so pickle expects __main__.EzeLLMConfig.
-import __main__
-__main__.EzeLLMConfig = EzeLLMConfig
-torch.serialization.add_safe_globals([EzeLLMConfig])
-
 
 # ===========================================================================
 # 1. FP16 Conversion
@@ -32,7 +27,7 @@ torch.serialization.add_safe_globals([EzeLLMConfig])
 def convert_fp16(model_path: str, output_path: str):
     """Convert FP32 checkpoint to FP16."""
     print(f"Converting {model_path} to FP16...")
-    checkpoint = torch.load(model_path, map_location='cpu', weights_only=True)
+    checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
     for key in checkpoint['model']:
         if checkpoint['model'][key].is_floating_point():
             checkpoint['model'][key] = checkpoint['model'][key].half()
@@ -53,7 +48,7 @@ def convert_int8_dynamic(model_path: str, output_path: str):
     """
     print(f"Converting {model_path} to INT8 dynamic...")
     device = 'cpu'  # dynamic quantization works on CPU
-    checkpoint = torch.load(model_path, map_location=device, weights_only=True)
+    checkpoint = torch.load(model_path, map_location=device, weights_only=False)
     model = EzeLLM(checkpoint['config'], device=device)
     model.load_state_dict(checkpoint['model'])
     model.eval()
@@ -197,7 +192,7 @@ def convert_int8_calibrated(model_path: str, output_path: str,
     print(f"Converting {model_path} to INT8 calibrated...")
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    checkpoint = torch.load(model_path, map_location='cpu', weights_only=True)
+    checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
     model = EzeLLM(checkpoint['config'], device=device)
     model.load_state_dict(checkpoint['model'])
     model.eval()
@@ -305,7 +300,7 @@ def load_int8_calibrated(model_path: str, device: str = 'cuda'):
     Load a calibrated INT8 quantized model.
     Reconstructs the model with QuantizedLinear layers.
     """
-    checkpoint = torch.load(model_path, map_location='cpu', weights_only=True)
+    checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
     config = checkpoint['config']
     quantized_layers = checkpoint['quantized_layers']
 

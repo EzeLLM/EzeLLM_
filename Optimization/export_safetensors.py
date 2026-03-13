@@ -23,7 +23,9 @@ import torch
 from safetensors.torch import save_file
 from ezellm import EzeLLMConfig
 
-# Allow EzeLLMConfig to be unpickled safely (checkpoint stores it as a dataclass)
+# The checkpoint was saved from __main__, so pickle expects __main__.EzeLLMConfig.
+import __main__
+__main__.EzeLLMConfig = EzeLLMConfig
 torch.serialization.add_safe_globals([EzeLLMConfig])
 
 

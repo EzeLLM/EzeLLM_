@@ -12,7 +12,10 @@ import torch
 from ezellm import EzeLLM, EzeLLMConfig
 from kv_cache import generate_deterministic
 
-# Allow EzeLLMConfig to be unpickled safely (checkpoint stores it as a dataclass)
+# The checkpoint was saved from __main__, so pickle expects __main__.EzeLLMConfig.
+# Make it resolvable by injecting into both __main__ and the safe globals list.
+import __main__
+__main__.EzeLLMConfig = EzeLLMConfig
 torch.serialization.add_safe_globals([EzeLLMConfig])
 
 

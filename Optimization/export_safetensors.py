@@ -89,7 +89,7 @@ def export_model(model_path: str, output_dir: str):
     os.makedirs(output_dir, exist_ok=True)
 
     print(f"Loading checkpoint from {model_path}...")
-    checkpoint = torch.load(model_path, map_location='cpu')
+    checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
     config = checkpoint['config']
     state_dict = checkpoint['model']
 

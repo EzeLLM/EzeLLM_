@@ -20,7 +20,7 @@ def verify_kv_cache(model_path: str, num_tokens: int = 50):
     """
     print(f"Loading model from {model_path}...")
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    checkpoint = torch.load(model_path, map_location=device)
+    checkpoint = torch.load(model_path, map_location=device, weights_only=False)
     model = EzeLLM(checkpoint['config'], device=device)
     model.load_state_dict(checkpoint['model'])
     model.eval()

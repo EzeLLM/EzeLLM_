@@ -237,7 +237,7 @@ def run_benchmarks(model_dir: str = None):
 
     # --- 1. FP32 Baseline (no cache) ---
     print("\n[1/5] Benchmarking FP32 baseline (no KV cache)...")
-    checkpoint = torch.load(fp32_path, map_location=device)
+    checkpoint = torch.load(fp32_path, map_location=device, weights_only=False)
     model = EzeLLM(checkpoint['config'], device=device)
     model.load_state_dict(checkpoint['model'])
     model.eval()
@@ -263,7 +263,7 @@ def run_benchmarks(model_dir: str = None):
 
     # --- 2. FP32 + KV Cache ---
     print("\n[2/5] Benchmarking FP32 + KV Cache...")
-    checkpoint = torch.load(fp32_path, map_location=device)
+    checkpoint = torch.load(fp32_path, map_location=device, weights_only=False)
     model = EzeLLM(checkpoint['config'], device=device)
     model.load_state_dict(checkpoint['model'])
     model.eval()
@@ -289,7 +289,7 @@ def run_benchmarks(model_dir: str = None):
     # --- 3. FP16 + KV Cache ---
     if os.path.exists(fp16_path):
         print("\n[3/5] Benchmarking FP16 + KV Cache...")
-        checkpoint = torch.load(fp16_path, map_location=device)
+        checkpoint = torch.load(fp16_path, map_location=device, weights_only=False)
         model = EzeLLM(checkpoint['config'], device=device)
         model.load_state_dict(checkpoint['model'])
         model.eval()

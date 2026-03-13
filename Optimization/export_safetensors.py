@@ -16,6 +16,7 @@ import json
 import os
 import sys
 import re
+from typing import Optional
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'dev'))
 
@@ -63,7 +64,7 @@ SKIP_PATTERNS = [
 ]
 
 
-def rename_key(key: str) -> str | None:
+def rename_key(key: str) -> Optional[str]:
     """Rename a PyTorch state dict key to safetensors format. Returns None to skip."""
     # Check skip patterns
     for pattern in SKIP_PATTERNS:

@@ -1,96 +1,78 @@
 # EzeLLM
 
-EzeLLM is a custom large language model (LLM) architecture, designed for efficient text generation. It features a llama-like model structure and is optimized for experimentation, finetuning, and research. This repository provides the necessary code to load a pretrained model and run a demo to showcase its capabilities.
+A custom 327M-parameter LLM with a LLaMA-style architecture (GQA, RoPE, SwiGLU, RMSNorm), trained on 100B tokens of English educational content using a single NVIDIA RTX 4090.
 
-## NEWS
-- An easy-to-use Python library is coming very soon.
-- Quantized models will be available soon, improving mobility over the current fp32 model.
-- A finetuning script is also on the way.
-
-## Notes
-- The library is tested on cpu only at the moment. 
-## Motivation
-
-EzeLLM was developed as a platform for optimization and finetuning research, rather than competing with state-of-the-art LLMs (e.g., sonnet 3.5). The challenge was to surpass GPT-3's performance (356M parameters) using a single NVIDIA 4090, which was achieved.
-
-## Features
-
-- Custom LLM architecture inspired by LLaMA.
-- Efficient model loading and generation pipeline.
-- Configuration through TOML files.
-- Pretrained model download from a specified URL.
-- Rotary, multi-head attention for enhanced performance.
-
-## Source Tree
-
-```
-EzeLLM_
-├── config
-│   ├── config.toml
-│   └── memory.toml
-├── README.md
-└── dev
-    ├── __pycache__
-    ├── pipeline.py
-    ├── get_model.py
-    └── ezellm.py
-```
-
-## Getting Started
-
-### Prerequisites
-
-- PyTorch
-- Python packages: `requests`, `tqdm`, `toml`
-
-### Installation
-
-1. Clone the repository:
-
-   ```bash
-   git clone https://github.com/EzeLLM/EzeLLM.git
-   cd EzeLLM_
-   ```
-
-2. Install the required Python packages:
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-### Configuration
-
-The configuration files (`config.toml` and `memory.toml`) contain settings for model URLs and memory information.
-
-- **config.toml**: Contains the URL for downloading the pretrained model.
-  
-  ```toml
-  model_url="https://huggingface.co/TerminatorPower/EzeLLM-base-text-fp32/resolve/main/model.pt"
-  ```
-
-- **memory.toml**: Stores model paths after downloading for future use.
-
-### Usage
-
-To run the model, execute the pipeline script from the terminal:
+## Quick Start
 
 ```bash
-python dev/pipeline.py
+pip install -r requirements.txt
+
+# Generate text (downloads model automatically on first run)
+python dev/ezellm.py --prompt "The theory of relativity"
+
+# With options
+python dev/ezellm.py --prompt "Hello world" --max-tokens 512 --temperature 0.8
 ```
 
-Once the script is running, you can input text and the model will generate a continuation. 
+The default mode uses **FP16 + KV cache** for optimal throughput (~100 tok/s on RTX 4090).
 
-**Note**: The model is trained on a 100 billion token dataset focused on English educational content. It is most appropriate to use the model with this in mind, as it performs optimally on educational or informational text inputs.
+## Rust Inference (3.4x faster)
 
+A native Rust binary with the model embedded — no Python, no external files:
 
-## File Structure
+```bash
+cd Optimization/rust-inference
+./build.sh
+./target/release/ezellm-rs --prompt "The theory of relativity"
+```
 
-- **config/config.toml**: Configuration for the model URL.
-- **dev/pipeline.py**: Contains the logic for setting up the pipeline, downloading, and loading the model.
-- **dev/get_model.py**: Helper functions for downloading files with a progress bar.
-- **dev/ezellm.py**: Definition of the EzeLLM model architecture, including attention and generation logic.
+Achieves **~346 tok/s** on RTX 4090 (vs ~100 tok/s Python FP16).
 
-## Contributing
+## Architecture
 
-Contributions are welcome! Feel free to open issues or submit pull requests for new features, bug fixes, or improvements.
-Please report bugs and problems.
+- **Parameters**: 327M (1024 hidden, 20 layers)
+- **Attention**: Grouped Query Attention (16 query heads, 8 KV heads)
+- **Position encoding**: Rotary Position Embeddings (RoPE)
+- **Activation**: SwiGLU
+- **Normalization**: RMSNorm
+- **Context length**: 2048 tokens
+- **Vocabulary**: 50,304 tokens (GPT-2 BPE)
+
+## Repository Structure
+
+```
+EzeLLM_/
+├── dev/
+│   └── ezellm.py          # Model definition + inference
+├── config/
+│   ├── config.toml         # Model download URL
+│   └── memory.toml         # Local model paths
+├── Optimization/
+│   ├── run_all.py          # Full optimization pipeline
+│   ├── kv_cache.py         # KV cache implementation
+│   ├── quantize.py         # FP16 / INT8 quantization
+│   ├── benchmark.py        # Benchmarking suite
+│   ├── export_safetensors.py  # Export for Rust engine
+│   ├── rust-inference/     # Rust + Candle inference engine
+│   ├── report.tex          # Workshop paper
+│   └── new.md              # Full benchmark results
+└── requirements.txt
+```
+
+## Optimization Results
+
+| Variant | tok/s (256 tokens) | Speedup |
+|---------|---:|---:|
+| FP32 no cache | 93.7 | 1.0x |
+| FP32 + KV Cache | 92.9 | 1.0x |
+| FP16 + KV Cache | 101.6 | 1.1x |
+| **Rust CUDA** | **346.1** | **3.7x** |
+
+See [Optimization/new.md](Optimization/new.md) for full results across 32–2048 tokens.
+
+## Requirements
+
+- Python 3.10+
+- PyTorch 2.1+
+- NVIDIA GPU with CUDA (for GPU inference)
+- Rust toolchain (for Rust engine only)

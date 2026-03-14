@@ -1,18 +1,25 @@
 # EzeLLM Optimization
 
-Performance optimizations for the EzeLLM ~356M-parameter LLaMA-style language model.
+Performance optimizations for the EzeLLM 327M-parameter LLaMA-style language model.
 
-## Optimizations
+## Results
 
-1. **KV Cache** — Caches key/value tensors per layer during autoregressive generation, avoiding full-sequence recomputation at each step. Produces token-for-token identical output to the original model.
+| Variant | Throughput (tok/s @ 256 tokens) |
+|---------|------:|
+| FP32 no cache | 93.7 |
+| FP32 + KV Cache | 92.9 |
+| **FP16 + KV Cache** | **101.6** |
+| **Rust CUDA** | **346.1** |
+| Rust CPU | 27.4 |
 
-2. **FP16 Conversion** — Converts FP32 weights to FP16, halving model size and VRAM usage with near-zero quality loss.
+Full benchmark results across 32–2048 tokens: [new.md](new.md)
 
-3. **INT8 Dynamic Quantization** — PyTorch-native weight-only INT8 quantization of all Linear layers. No calibration data needed.
+## Python Optimizations
 
-4. **INT8 Calibrated Quantization** — Per-channel INT8 quantization using activation statistics from 128 calibration samples (Nemotron dataset). Better precision than naive rounding.
+1. **KV Cache** — Caches key/value tensors per layer, avoiding full-sequence recomputation. Token-for-token identical output.
+2. **FP16 Conversion** — Halves model size and VRAM usage with near-zero quality loss.
 
-## Quick Start
+### Quick Start (Python)
 
 ```bash
 cd Optimization
@@ -20,16 +27,41 @@ pip install -r requirements.txt
 python run_all.py
 ```
 
-This will:
-1. Download the model weights (~1.4 GB)
-2. Verify KV cache correctness (greedy decode identity test)
-3. Create FP16, INT8 dynamic, and INT8 calibrated model variants
-4. Run benchmarks and print a comparison table
+This downloads the model, verifies KV cache correctness, creates the FP16 variant, and runs benchmarks.
 
-## Hardware Requirements
+## Rust Inference Engine
 
-- NVIDIA GPU with CUDA support (tested on RTX 4090, 24GB VRAM)
-- ~5 GB disk space for all model variants
+A native Rust implementation using [Candle](https://github.com/huggingface/candle). The model, tokenizer, and config are embedded directly into the binary — no external files needed at runtime.
+
+**3.4x faster** than the best Python variant at typical sequence lengths.
+
+### Building
+
+```bash
+cd Optimization/rust-inference
+./build.sh
+```
+
+The build script automatically detects CUDA, Metal, or falls back to CPU.
+
+### Usage
+
+```bash
+# Default: CUDA if available
+./target/release/ezellm-rs --prompt "The theory of relativity"
+
+# More options
+./target/release/ezellm-rs --prompt "Hello" --max-tokens 512 --temperature 0.8 --top-k 50
+
+# Force CPU
+./target/release/ezellm-rs --cpu
+```
+
+### Prerequisites
+
+- Rust toolchain (rustup)
+- For CUDA: NVIDIA GPU + CUDA toolkit
+- Model must be exported first: `python export_safetensors.py` (done automatically by `build.sh`)
 
 ## File Structure
 
@@ -37,31 +69,13 @@ This will:
 |------|-------------|
 | `run_all.py` | Master script — runs everything end-to-end |
 | `kv_cache.py` | KV cache implementation + cached generation |
-| `quantize.py` | FP16, INT8 dynamic, INT8 calibrated conversion |
 | `benchmark.py` | Speed / memory / quality comparison |
 | `verify_kv_cache.py` | Token-for-token identity test |
-| `requirements.txt` | Python dependencies |
+| `export_safetensors.py` | Export .pt to safetensors for Rust |
+| `rust-inference/` | Rust inference engine (Candle + CUDA) |
+| `new.md` | Full benchmark results (32–2048 tokens) |
+| `report.tex` | Workshop paper with analysis |
 
-## Individual Scripts
+## Hardware
 
-### Verify KV Cache
-```bash
-python verify_kv_cache.py [model_path]
-```
-
-### Create Quantized Models
-```bash
-python quantize.py
-```
-
-### Run Benchmarks Only
-```bash
-python benchmark.py
-```
-
-## Notes
-
-- This is a custom PyTorch model, not a HuggingFace transformers model. Tools like AutoGPTQ, AutoAWQ, and llama.cpp will not work.
-- INT8 dynamic quantization uses `torch.ao.quantization.quantize_dynamic` and runs on CPU only.
-- The KV cache implementation correctly handles RoPE position offsets and GQA (16 query heads, 8 KV heads).
-- The lm_head bug in the original model (loop overwriting logits instead of chaining through Sequential) is fixed in the cached forward pass.
+Tested on RTX 4090 + Ryzen 9 7950X. Requires NVIDIA GPU with CUDA for GPU variants.

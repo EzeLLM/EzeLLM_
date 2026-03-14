@@ -21,12 +21,15 @@ fi
 echo ""
 echo "Building Rust binary (release mode)..."
 
-# Detect CUDA
+# Detect GPU backend
 if command -v nvidia-smi &> /dev/null; then
-    echo "CUDA detected, building with GPU support"
+    echo "CUDA detected, building with NVIDIA GPU support"
     RUSTFLAGS="-C target-cpu=native" cargo build --release --features cuda
+elif [[ "$(uname)" == "Darwin" ]] && system_profiler SPDisplaysDataType 2>/dev/null | grep -q "Metal"; then
+    echo "Metal detected, building with Apple GPU support"
+    RUSTFLAGS="-C target-cpu=native" cargo build --release --features metal
 else
-    echo "No CUDA detected, building CPU-only"
+    echo "No GPU detected, building CPU-only"
     RUSTFLAGS="-C target-cpu=native" cargo build --release
 fi
 
@@ -34,5 +37,7 @@ echo ""
 echo "=== Build complete ==="
 echo "Binary: $SCRIPT_DIR/target/release/ezellm-rs"
 echo ""
-echo "Run with:"
-echo "  ./target/release/ezellm-rs --model-dir ../exported/ --prompt 'Your prompt here'"
+echo "Usage:"
+echo "  ./target/release/ezellm-rs --prompt 'Your prompt here'"
+echo "  ./target/release/ezellm-rs --prompt 'Hello' --max-tokens 512 --temperature 0.8"
+echo "  ./target/release/ezellm-rs --cpu   # force CPU instead of CUDA"

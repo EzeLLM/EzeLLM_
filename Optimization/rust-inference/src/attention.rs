@@ -1,5 +1,5 @@
 use anyhow::Result;
-use candle_core::{Device, Tensor};
+use candle_core::{DType, Device, Tensor};
 use candle_nn::{Linear, Module, VarBuilder};
 
 use crate::cache::KVCache;
@@ -86,27 +86,8 @@ impl Attention {
         // Update KV cache and get full K, V
         let (k_full, v_full) = cache.update(&k, &v)?;
 
-        // Repeat KV heads for GQA
-        let k_full = repeat_kv(&k_full, self.n_rep)?;
-        let v_full = repeat_kv(&v_full, self.n_rep)?;
-
-        // Scaled dot-product attention
-        let scale = 1.0 / (self.head_dim as f64).sqrt();
-        let attn_weights = (q.matmul(&k_full.transpose(2, 3)?)? * scale)?;
-
-        // Apply causal mask during prefill (seq_len > 1)
-        let attn_weights = if seq_len > 1 {
-            let total_len = k_full.dim(2)?;
-            let mask = create_causal_mask(seq_len, total_len, x.device())?;
-            let mask = mask.to_dtype(attn_weights.dtype())?;
-            attn_weights.broadcast_add(&mask)?
-        } else {
-            // Single token decode — no mask needed
-            attn_weights
-        };
-
-        let attn_weights = candle_nn::ops::softmax_last_dim(&attn_weights)?;
-        let y = attn_weights.matmul(&v_full)?;
+        // Try flash attention on CUDA, fall back to manual attention
+        let y = self.attention_impl(&q, &k_full, &v_full, seq_len, x.device())?;
 
         // Concatenate heads and project
         let y = y.transpose(1, 2)?.contiguous()?.reshape((b, seq_len, ()))?;
@@ -114,22 +95,101 @@ impl Attention {
 
         Ok(y)
     }
+
+    /// Dispatch to flash attention or manual attention based on device and feature flags.
+    fn attention_impl(
+        &self,
+        q: &Tensor,
+        k_full: &Tensor,
+        v_full: &Tensor,
+        seq_len: usize,
+        device: &Device,
+    ) -> Result<Tensor> {
+        #[cfg(feature = "flash-attn")]
+        {
+            if device.is_cuda() {
+                return self.flash_attention(q, k_full, v_full, seq_len);
+            }
+        }
+        let _ = device; // suppress unused warning when flash-attn is disabled
+        self.manual_attention(q, k_full, v_full, seq_len)
+    }
+
+    /// Flash attention v2 — fused CUDA kernel.
+    /// Handles GQA natively (no repeat_kv needed).
+    #[cfg(feature = "flash-attn")]
+    fn flash_attention(
+        &self,
+        q: &Tensor,
+        k_full: &Tensor,
+        v_full: &Tensor,
+        seq_len: usize,
+    ) -> Result<Tensor> {
+        // flash_attn expects (B, T, H, D) layout
+        let q = q.transpose(1, 2)?.contiguous()?;     // (B, seq_q, n_heads, D)
+        let k = k_full.transpose(1, 2)?.contiguous()?; // (B, seq_kv, n_kv_heads, D)
+        let v = v_full.transpose(1, 2)?.contiguous()?; // (B, seq_kv, n_kv_heads, D)
+
+        let scale = 1.0 / (self.head_dim as f32).sqrt();
+        let causal = seq_len > 1; // causal mask for prefill, not needed for single-token decode
+
+        let y = candle_flash_attn::flash_attn(&q, &k, &v, scale, causal)?;
+        // y: (B, seq_q, n_heads, D) → transpose back to (B, n_heads, seq_q, D)
+        let y = y.transpose(1, 2)?;
+        Ok(y)
+    }
+
+    /// Manual scaled dot-product attention (CPU / non-flash-attn CUDA fallback).
+    fn manual_attention(
+        &self,
+        q: &Tensor,
+        k_full: &Tensor,
+        v_full: &Tensor,
+        seq_len: usize,
+    ) -> Result<Tensor> {
+        // Repeat KV heads for GQA
+        let k_full = repeat_kv(k_full, self.n_rep)?;
+        let v_full = repeat_kv(v_full, self.n_rep)?;
+
+        let attn_weights = q.matmul(&k_full.transpose(2, 3)?)?;
+
+        // Apply causal mask during prefill (seq_len > 1)
+        // For single-token decode, skip mask and scale in one go
+        let attn_weights = if seq_len > 1 {
+            let scale = 1.0 / (self.head_dim as f64).sqrt();
+            let attn_weights = (attn_weights * scale)?;
+            let total_len = k_full.dim(2)?;
+            let mask = create_causal_mask(seq_len, total_len, q.device(), q.dtype())?;
+            attn_weights.broadcast_add(&mask)?
+        } else {
+            let scale = 1.0 / (self.head_dim as f64).sqrt();
+            (attn_weights * scale)?
+        };
+
+        let attn_weights = candle_nn::ops::softmax_last_dim(&attn_weights)?;
+        let y = attn_weights.matmul(&v_full)?;
+
+        Ok(y)
+    }
 }
 
-/// Create a causal attention mask.
+/// Create a causal attention mask directly in model dtype.
 /// Returns a (1, 1, seq_len, total_len) tensor where masked positions are -inf.
-fn create_causal_mask(seq_len: usize, total_len: usize, device: &Device) -> Result<Tensor> {
-    // For prefill: query positions are [total_len - seq_len .. total_len]
-    // Each query at position i can attend to positions [0..=i]
+fn create_causal_mask(
+    seq_len: usize,
+    total_len: usize,
+    device: &Device,
+    dtype: DType,
+) -> Result<Tensor> {
     let mut mask_data = vec![f32::NEG_INFINITY; seq_len * total_len];
     let offset = total_len - seq_len;
     for i in 0..seq_len {
-        // Query i corresponds to absolute position (offset + i)
-        // It can attend to positions 0..=(offset + i)
         for j in 0..=(offset + i) {
             mask_data[i * total_len + j] = 0.0;
         }
     }
-    let mask = Tensor::from_vec(mask_data, (seq_len, total_len), device)?;
+    // Build on CPU then move to device in target dtype (avoids separate to_dtype kernel)
+    let mask = Tensor::from_vec(mask_data, (seq_len, total_len), &Device::Cpu)?;
+    let mask = mask.to_dtype(dtype)?.to_device(device)?;
     Ok(mask.unsqueeze(0)?.unsqueeze(0)?)
 }

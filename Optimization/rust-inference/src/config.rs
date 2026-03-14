@@ -27,4 +27,9 @@ impl EzeLLMConfig {
         let config: EzeLLMConfig = serde_json::from_str(&contents)?;
         Ok(config)
     }
+
+    pub fn from_bytes(data: &[u8]) -> anyhow::Result<Self> {
+        let config: EzeLLMConfig = serde_json::from_slice(data)?;
+        Ok(config)
+    }
 }

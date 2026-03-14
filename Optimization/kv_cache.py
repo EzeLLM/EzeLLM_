@@ -22,6 +22,17 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'dev'))
 from ezellm import EzeLLMConfig, SwiGLU, MLP, Block, EzeLLM
 
 
+def _sample_token(logits: torch.Tensor, temperature: float, topk: int) -> torch.Tensor:
+    """Sample next token from logits. Greedy when temperature <= 0."""
+    if temperature <= 0:
+        return torch.argmax(logits, dim=-1, keepdim=True)
+    logits = logits / temperature
+    probs = F.softmax(logits, dim=-1)
+    topk_probs, topk_indices = torch.topk(probs, topk, dim=-1)
+    ix = torch.multinomial(topk_probs, 1)
+    return torch.gather(topk_indices, -1, ix)
+
+
 class KVCache:
     """Stores cached K and V tensors per layer for autoregressive generation."""
 
@@ -177,8 +188,11 @@ def forward_cached(model: EzeLLM, idx: torch.Tensor,
 
     x = model.transformer.ln_f(x)
 
-    # Fix the lm_head bug: use Sequential directly instead of looping
-    logits = model.lm_head(x)
+    # The original forward() applies each lm_head sublayer to the same x
+    # (not chaining). The model was trained this way, so the final Linear
+    # learned to map directly from ln_f output to logits. Replicate that.
+    for head in model.lm_head:
+        logits = head(x)
 
     return logits
 
@@ -234,11 +248,7 @@ def generate_cached(
         cache.advance(x.shape[1])
 
         # Sample first new token from last position
-        logits_last = logits[:, -1, :] / temperature
-        probs = F.softmax(logits_last, dim=-1)
-        topk_probs, topk_indices = torch.topk(probs, topk, dim=-1)
-        ix = torch.multinomial(topk_probs, 1)
-        next_token = torch.gather(topk_indices, -1, ix)
+        next_token = _sample_token(logits[:, -1, :], temperature, topk)
         x = torch.cat((x, next_token), dim=-1)
 
         if next_token.item() == eot_id:
@@ -250,11 +260,7 @@ def generate_cached(
                 logits = forward_cached(model, next_token, cache=cache, offset=offset)
                 cache.advance(1)
 
-                logits_last = logits[:, -1, :] / temperature
-                probs = F.softmax(logits_last, dim=-1)
-                topk_probs, topk_indices = torch.topk(probs, topk, dim=-1)
-                ix = torch.multinomial(topk_probs, 1)
-                next_token = torch.gather(topk_indices, -1, ix)
+                next_token = _sample_token(logits[:, -1, :], temperature, topk)
                 x = torch.cat((x, next_token), dim=-1)
 
                 if next_token.item() == eot_id:
@@ -299,11 +305,7 @@ def generate_no_cache(
     while x.size(1) < max_l:
         with torch.no_grad():
             logits = forward_cached(model, x, cache=None, offset=0)
-            logits_last = logits[:, -1, :] / temperature
-            probs = F.softmax(logits_last, dim=-1)
-            topk_probs, topk_indices = torch.topk(probs, topk, dim=-1)
-            ix = torch.multinomial(topk_probs, 1)
-            next_token = torch.gather(topk_indices, -1, ix)
+            next_token = _sample_token(logits[:, -1, :], temperature, topk)
             x = torch.cat((x, next_token), dim=-1)
 
             if next_token.item() == eot_id:

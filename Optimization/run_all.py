@@ -1,8 +1,8 @@
 """
 Master script for EzeLLM optimization.
 
-Downloads the model, verifies KV cache correctness, creates all optimized
-variants, and runs benchmarks.
+Downloads the model, verifies KV cache correctness, creates the FP16
+variant, and runs benchmarks.
 
 Usage:
     cd Optimization
@@ -14,7 +14,6 @@ import sys
 import os
 import subprocess
 
-# Ensure we can import from this directory and from dev/
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'dev'))
 
@@ -61,6 +60,22 @@ def download_model(url: str = MODEL_URL, output_path: str = MODEL_PATH):
     return output_path
 
 
+def convert_fp16(model_path: str, output_path: str):
+    """Convert FP32 checkpoint to FP16."""
+    if os.path.exists(output_path):
+        size_mb = os.path.getsize(output_path) / (1024 * 1024)
+        print(f"FP16 model already exists at {output_path} ({size_mb:.1f} MB)")
+        return
+    print(f"Converting {model_path} to FP16...")
+    checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
+    for key in checkpoint['model']:
+        if checkpoint['model'][key].is_floating_point():
+            checkpoint['model'][key] = checkpoint['model'][key].half()
+    torch.save(checkpoint, output_path)
+    size_mb = os.path.getsize(output_path) / (1024 * 1024)
+    print(f"FP16 model saved to {output_path} ({size_mb:.1f} MB)")
+
+
 def main():
     print("=" * 60)
     print("  EzeLLM Optimization Pipeline")
@@ -79,22 +94,10 @@ def main():
         sys.exit(1)
     print("KV cache verification passed!")
 
-    # Step 2: Create optimized variants
-    print("\n=== Step 2: Create Optimized Variants ===")
-    from quantize import convert_fp16, convert_int8_dynamic, convert_int8_calibrated
-
+    # Step 2: Create FP16 variant
+    print("\n=== Step 2: Create FP16 Variant ===")
     fp16_path = os.path.join(MODEL_DIR, "model_fp16.pt")
-    int8_dyn_path = os.path.join(MODEL_DIR, "model_int8_dynamic.pt")
-    int8_cal_path = os.path.join(MODEL_DIR, "model_int8_calibrated.pt")
-
-    print("\n--- Creating FP16 variant ---")
     convert_fp16(model_path, fp16_path)
-
-    print("\n--- Creating INT8 dynamic variant ---")
-    convert_int8_dynamic(model_path, int8_dyn_path)
-
-    print("\n--- Creating INT8 calibrated variant ---")
-    convert_int8_calibrated(model_path, int8_cal_path, num_calibration_samples=128)
 
     # Step 3: Benchmark everything
     print("\n=== Step 3: Run Benchmarks ===")
@@ -107,8 +110,6 @@ def main():
     print(f"\nOptimized models saved in: {MODEL_DIR}")
     print("  - model.pt (FP32 baseline)")
     print("  - model_fp16.pt (FP16)")
-    print("  - model_int8_dynamic.pt (INT8 dynamic)")
-    print("  - model_int8_calibrated.pt (INT8 calibrated)")
 
 
 if __name__ == '__main__':

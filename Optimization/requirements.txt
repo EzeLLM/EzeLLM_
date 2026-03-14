@@ -1,7 +1,7 @@
 torch>=2.1.0
 tiktoken
 rotary_embedding_torch
-datasets
+safetensors
 requests
 tqdm
 toml

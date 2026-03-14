@@ -19,13 +19,14 @@ use crate::config::EzeLLMConfig;
 use crate::model::EzeLLM;
 use crate::sampling::sample_top_k;
 
-#[derive(Parser)]
-#[command(name = "ezellm-rs", about = "EzeLLM Rust inference engine")]
-struct Args {
-    /// Path to exported model directory (containing model.safetensors, config.json, tokenizer.json)
-    #[arg(short, long)]
-    model_dir: String,
+// Embed model files directly into the binary
+const MODEL_BYTES: &[u8] = include_bytes!("../../exported/model.safetensors");
+const CONFIG_BYTES: &[u8] = include_bytes!("../../exported/config.json");
+const TOKENIZER_BYTES: &[u8] = include_bytes!("../../exported/tokenizer.json");
 
+#[derive(Parser)]
+#[command(name = "ezellm", about = "EzeLLM inference engine (model embedded)")]
+struct Args {
     /// Input prompt
     #[arg(short, long, default_value = "The theory of relativity")]
     prompt: String,
@@ -50,45 +51,47 @@ struct Args {
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    let device = if args.cpu || cfg!(not(feature = "cuda")) {
+    let device = if args.cpu {
         eprintln!("Using CPU");
         Device::Cpu
+    } else if cfg!(feature = "cuda") {
+        match Device::new_cuda(0) {
+            Ok(d) => { eprintln!("Using CUDA"); d }
+            Err(e) => { eprintln!("CUDA init failed ({}), falling back to CPU", e); Device::Cpu }
+        }
+    } else if cfg!(feature = "metal") {
+        match Device::new_metal(0) {
+            Ok(d) => { eprintln!("Using Metal"); d }
+            Err(e) => { eprintln!("Metal init failed ({}), falling back to CPU", e); Device::Cpu }
+        }
     } else {
-        eprintln!("Using CUDA");
-        Device::new_cuda(0)?
+        eprintln!("Using CPU");
+        Device::Cpu
     };
 
-    let dtype = if device.is_cuda() {
+    let dtype = if device.is_cuda() || device.is_metal() {
         DType::F16
     } else {
         DType::F32
     };
 
-    // Load config
-    let config_path = format!("{}/config.json", args.model_dir);
-    let config = EzeLLMConfig::from_json(&config_path)?;
+    // Load config from embedded bytes
+    let config = EzeLLMConfig::from_bytes(CONFIG_BYTES)?;
     eprintln!("Model config: {:?}", config);
 
-    // Load model weights via memory-mapped safetensors
-    let safetensors_path = format!("{}/model.safetensors", args.model_dir);
-    eprintln!("Loading model from {}...", safetensors_path);
+    // Load model weights from embedded safetensors
+    eprintln!("Loading model...");
     let load_start = Instant::now();
-    let vb = unsafe {
-        VarBuilder::from_mmaped_safetensors(&[&safetensors_path], dtype, &device)?
-    };
+    let vb = VarBuilder::from_slice_safetensors(MODEL_BYTES, dtype, &device)?;
     let model = EzeLLM::load(vb, &config)?;
     eprintln!("Model loaded in {:.2?}", load_start.elapsed());
 
-    // Load tokenizer
-    let tokenizer_path = format!("{}/tokenizer.json", args.model_dir);
-    let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer_path)
+    // Load tokenizer from embedded bytes
+    let tokenizer = tokenizers::Tokenizer::from_bytes(TOKENIZER_BYTES)
         .map_err(|e| anyhow::anyhow!("Failed to load tokenizer: {}", e))?;
 
     // EOT token ID for GPT-2
     let eot_id: u32 = 50256;
-
-    // Initialize KV caches
-    let mut caches = model.create_caches();
 
     // Tokenize prompt
     let encoding = tokenizer
@@ -97,6 +100,10 @@ fn main() -> Result<()> {
     let prompt_ids: Vec<u32> = encoding.get_ids().to_vec();
     let prompt_len = prompt_ids.len();
     let mut tokens = prompt_ids.clone();
+
+    // Initialize pre-allocated KV caches
+    let max_seq_len = (prompt_len + args.max_tokens).min(config.max_position_embeddings);
+    let mut caches = model.create_caches(max_seq_len, dtype, &device)?;
 
     // Print the prompt
     print!("{}", args.prompt);
@@ -133,6 +140,9 @@ fn main() -> Result<()> {
     if next_token != eot_id {
         for _ in 1..args.max_tokens {
             let pos = tokens.len() - 1;
+            if pos >= config.max_position_embeddings - 1 {
+                break;
+            }
             let input =
                 Tensor::new(&[*tokens.last().unwrap()], &device)?.unsqueeze(0)?;
             let logits = model.forward(&input, pos, &mut caches)?;

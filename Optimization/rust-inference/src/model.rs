@@ -1,5 +1,5 @@
 use anyhow::Result;
-use candle_core::Tensor;
+use candle_core::{DType, Device, Tensor};
 use candle_nn::{Embedding, Module, RmsNorm, VarBuilder};
 
 use crate::attention::Attention;
@@ -87,11 +87,13 @@ impl EzeLLM {
         let wte_weight = wte.embeddings();
         let lm_head = LMHead::load(vb.pp("lm_head"), config, wte_weight)?;
 
-        // Precompute RoPE tables
+        // Precompute RoPE tables (pre-cast to model dtype)
+        let dtype = vb.dtype();
         let rope = RotaryEmbedding::new(
             config.head_dim(),
             config.max_position_embeddings,
             config.rope_theta,
+            dtype,
             device,
         )?;
 
@@ -127,10 +129,19 @@ impl EzeLLM {
         Ok(logits)
     }
 
-    /// Create fresh KV caches for all layers.
-    pub fn create_caches(&self) -> Vec<KVCache> {
+    /// Create pre-allocated KV caches for all layers.
+    pub fn create_caches(&self, max_seq_len: usize, dtype: DType, device: &Device) -> Result<Vec<KVCache>> {
         (0..self.config.num_hidden_layers)
-            .map(|_| KVCache::new())
+            .map(|_| {
+                KVCache::new(
+                    1, // batch_size
+                    self.config.num_key_value_heads,
+                    max_seq_len,
+                    self.config.head_dim(),
+                    dtype,
+                    device,
+                )
+            })
             .collect()
     }
 }
